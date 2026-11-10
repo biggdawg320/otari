@@ -35,6 +35,7 @@ from gateway.core.settings_view import OMITTED, SECRET, SettingsGroup, Shown
 from gateway.log_config import logger
 from gateway.models.routing import RoutingConfig
 from gateway.models.tools import CodeExecutor, SandboxProvider
+from gateway.types.models_dev import MODELS_DEV_BASE_URL
 
 API_KEY_HEADER = "Otari-Key"
 # What may run a code-execution tool call. ``protocol`` is a backend of the
@@ -1087,6 +1088,14 @@ class GatewayConfig(
             "dashboard's model detail show (token limits, modalities, capabilities, knowledge "
             "cutoff). Set false to disable the outbound call; the gateway then shows the "
             "metadata of the models.dev catalog bundled with it. Pricing does not depend on it."
+        ),
+    )
+    models_dev_base_url: Annotated[str, Shown(SettingsGroup.MODELS)] = Field(
+        default=MODELS_DEV_BASE_URL,
+        description=(
+            "Where the models.dev catalog is fetched from. The default is Mozilla.ai's fork, which "
+            "publishes models.dev's catalog plus the models it does not list yet. Set "
+            "https://models.dev to read models.dev itself, or a mirror that serves the same paths."
         ),
     )
     models_dev_cache_ttl_seconds: Annotated[int, Shown(SettingsGroup.MODELS)] = Field(
@@ -2198,6 +2207,20 @@ class GatewayConfig(
         if parsed.username is not None or parsed.password is not None:
             # The value is left out of the message: the offending part of it is the credential.
             msg = f"{info.field_name} must carry no username or password"
+            raise ValueError(msg)
+        return normalized
+
+    @field_validator("models_dev_base_url")
+    @classmethod
+    def _validate_models_dev_base_url(cls, value: str) -> str:
+        """An absolute http(s) origin, with or without a path, that the document paths append to."""
+        normalized = value.strip().rstrip("/")
+        parsed = urlsplit(normalized)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.query or parsed.fragment:
+            msg = "models_dev_base_url must be an absolute http(s) URL without a query or fragment"
+            raise ValueError(msg)
+        if parsed.username is not None or parsed.password is not None:
+            msg = "models_dev_base_url must carry no username or password"
             raise ValueError(msg)
         return normalized
 

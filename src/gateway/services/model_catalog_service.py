@@ -29,7 +29,13 @@ from gateway.log_config import logger
 from gateway.services.pricing import bundled_catalog
 from gateway.types.model_endpoint import ModelEndpoint, models_dev_endpoints
 from gateway.types.model_type import ModelType, models_dev_model_type
-from gateway.types.models_dev import MODELS_DEV_SOURCES, ModelsDevCatalog, ModelsDevModel, ModelsDevSource
+from gateway.types.models_dev import (
+    MODELS_DEV_BASE_URL,
+    MODELS_DEV_SOURCES,
+    ModelsDevCatalog,
+    ModelsDevModel,
+    ModelsDevSource,
+)
 
 # The catalog is a few MB; a short read timeout keeps a slow models.dev from
 # stalling a dashboard load, and a failure just means "the last good copy this time".
@@ -126,6 +132,18 @@ class _CatalogCache:
 
 _cache = _CatalogCache()
 _lock = asyncio.Lock()
+
+# Set once at startup from ``GatewayConfig.models_dev_base_url``: the price
+# refresh downloads without the config object in hand.
+_base_url = MODELS_DEV_BASE_URL
+
+
+def configure_models_dev_base_url(url: str) -> None:
+    """Set where the catalog is downloaded from, from ``config.models_dev_base_url``."""
+    global _base_url
+    _base_url = url.rstrip("/")
+
+
 _MISS = object()
 
 
@@ -211,7 +229,7 @@ async def _download_from(source: ModelsDevSource) -> ModelsDevCatalog:
     try:
         async with (
             httpx.AsyncClient(timeout=_FETCH_TIMEOUT_SECONDS) as client,
-            client.stream("GET", source.url, headers={"User-Agent": "otari-gateway"}) as resp,
+            client.stream("GET", source.url_for(_base_url), headers={"User-Agent": "otari-gateway"}) as resp,
         ):
             resp.raise_for_status()
             chunks: list[bytes] = []

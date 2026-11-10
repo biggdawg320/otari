@@ -17,7 +17,13 @@ from gateway.log_config import logger as gateway_logger
 from gateway.services import model_catalog_service as mcs
 from gateway.services.catalog import load_catalog_metadata, metadata_entry
 from gateway.services.model_catalog_service import ModelCatalogEntry, build_metadata_map
-from gateway.types.models_dev import MODELS_DEV_SOURCES, ModelsDevCatalog, parse_catalog, parse_catalog_v2
+from gateway.types.models_dev import (
+    MODELS_DEV_BASE_URL,
+    MODELS_DEV_SOURCES,
+    ModelsDevCatalog,
+    parse_catalog,
+    parse_catalog_v2,
+)
 
 # The real fetch and fallback, before the shared conftest turns both off.
 _REAL_FETCH = mcs._fetch
@@ -285,13 +291,14 @@ SERVED = {"openai": {"id": "openai", "models": {"gpt-4o": {"name": "GPT-4o"}}}}
 
 
 @contextmanager
-def _serving(v2: object = None, v1: object = None) -> Iterator[list[str]]:
+def _serving(v2: object = None, v1: object = None, base: str = MODELS_DEV_BASE_URL) -> Iterator[list[str]]:
     """models.dev answering each document with its body as JSON, or with an HTTP error where it has none.
 
     Yields the URLs requested, in order.
     """
     requested: list[str] = []
-    bodies = {V2_URL: v2, V1_URL: v1}
+    source_v2, source_v1 = MODELS_DEV_SOURCES
+    bodies = {source_v2.url_for(base): v2, source_v1.url_for(base): v1}
 
     class _Response:
         def __init__(self, body: object) -> None:
@@ -350,6 +357,16 @@ async def test_the_download_reads_v2_into_a_catalog(caplog: pytest.LogCaptureFix
     assert (read.name, read.api[0].protocol) == ("GPT-4o", "responses")
     assert requested == [V2_URL]
     assert caplog.records == []
+
+
+@pytest.mark.asyncio
+async def test_the_download_follows_the_configured_base(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(mcs, "_base_url", mcs._base_url)
+    mcs.configure_models_dev_base_url("https://models.dev/")
+    with _serving(v2=SERVED, base="https://models.dev") as requested:
+        await mcs._download()
+
+    assert requested == ["https://models.dev/experimental/v2.0/api.json?type=all"]
 
 
 @pytest.mark.parametrize(
